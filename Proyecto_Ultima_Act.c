@@ -24,6 +24,7 @@ Los modulos del 4 - 6 tienen prioridad 1 - 5
 #include <string.h>
 
 /* Define */
+#define I 7
 #define N 10
 #define M 10
 #define MAX 20
@@ -82,8 +83,13 @@ typedef struct
 
 int memory[SIZE_MEMORY];
 int bitmap[SIZE_MEMORY];
+<<<<<<< HEAD:proyecto_07.c
 PCB pcb_procesos[N+M]; /* Cola de listos */
 
+=======
+PCB pcb_procesos[N]; /* Cola de listos */
+int Tinta_Disponible;
+>>>>>>> 3efd9c70d76fd68f4c36ff5afe8abcbaadd54808:Proyecto_Ultima_Act.c
 
 sem_t IRQ[I]; //vector de semaforos de interrupciones
 
@@ -109,7 +115,7 @@ void quitprocess(int id);
 void antivirus();
 /* --------------------------------------------------------------- */
 void recargar(Impresora *p);
-void imprimir(Impresora *p,char *sms , int tinta);
+void imprimir(Impresora *p, Tarjeta_Red *TR);
 
 
 /* --------------------------------------------------------------- */
@@ -129,7 +135,11 @@ int main(void)
 	pthread_t procesos[N+M]; /* Cola para ejecucion */
 	int i, j = 0, x;
 	int k; 
+<<<<<<< HEAD:proyecto_07.c
 	CantProcesos=0;
+=======
+	Tinta_Disponible = 500;
+>>>>>>> 3efd9c70d76fd68f4c36ff5afe8abcbaadd54808:Proyecto_Ultima_Act.c
 	for (k = 0; k < I; k++) //incializar los semaforos de las IRQ...
 		sem_init(&IRQ[k], 0, 0);
 		 
@@ -198,17 +208,22 @@ void *proceso_en_ejecucion(PCB *p)
 {
 	int i;
 	Tarjeta_Red TR;
-	Impresora printer;
+	Impresora IMP;
+	
+	TR.Buffer_In = 0;
+	TR.Buffer_Out = 0;
+	sem_init(&TR.In, 0, 1);
+	sem_init(&TR.Out, 0, 1);
+	sem_init(&IMP.mutex, 0, 1);
+	sem_init(&TR.Bloqueado, 0, 1);
 	
 	TR.Buffer_In = 0;
 	TR.Buffer_Out = 0;
 	sem_init(&TR.Bloqueado, 0, 1);
 	sem_init(&TR.In, 0, 1);
 	sem_init(&TR.Out, 0, 1);
-	sem_init(&printer.mutex, 0, 1); 
-	sem_wait(&TR.Bloqueado);
-	sem_wait(&TR.In);
-	sem_wait(&TR.Out);
+	sem_init(&IMP.mutex, 0, 1); 
+	//~ sem_wait(&TR->Bloqueado); //Esta es para que el Firewall Bloquee la tarjeta de Red...
 
 	sem_wait (&sem_procesos[p->numero_proceso]);
 	if(p->id_modulo == 0)
@@ -216,7 +231,8 @@ void *proceso_en_ejecucion(PCB *p)
 		printf("\e[1m\e[94m AVISO: Entra al proceso %d para su ejecucion\n", p->numero_proceso);
 		printf("\e[93m\e[1m Prioridad del proceso %d es %d \n", p->numero_proceso, p->prioridad);
 		printf("\e[93m\e[1m ID del proceso %d es %d \n", p->numero_proceso, p->id_modulo);
-		printf("\e[1m\e[96m El proceso solicita la tarjeta de red\n");		
+		printf("\e[1m\e[96m El proceso solicita la tarjeta de red\n");
+		sem_wait(&TR.In);
 		Solicitar_Tarjeta_Red(&TR);
 		pcb_procesos[p->numero_proceso].estatus = 3;
 	}
@@ -226,7 +242,7 @@ void *proceso_en_ejecucion(PCB *p)
 		printf("\e[93m\e[1m Prioridad del proceso %d es %d \n", p->numero_proceso, p->prioridad);
 		printf("\e[93m\e[1m ID del proceso %d es %d \n", p->numero_proceso, p->id_modulo);
 		printf("\e[1m\e[96m Se ejecutara el servidor de impresion\n");
-		imprimir(&printer,"hola",20);
+		imprimir(&IMP, &TR);
 		system("sleep 2.0");
 	}
 	else if(p->id_modulo == 2)
@@ -628,37 +644,48 @@ void antivirus()
 
 void recargar(Impresora *p)
 {
-	p->restante = 150;
+	printf("\nRecargando Impresora, Espere para imprimir...\n");
+	system("sleep 1.5");
+	Tinta_Disponible = (Tinta_Disponible + 150);
 }
-
-
-void imprimir(Impresora *p,char *sms , int tinta)
-{
-	int valor;
  
-	 if((sem_getvalue(&p->mutex, &valor) == 0) && (valor == 1))/* aca verifica la exclusion mutua */
-	 {
-	 	sem_wait(&p->mutex);
-	 
-		printf("\n Impresora recibe paquete de impresion");
-		system("sleep 2.0");
-		if (p->restante-tinta <0)
+void imprimir(Impresora *p, Tarjeta_Red *TR)
+{
+	int valor, Tinta;
+	bool Bandera;
+	Bandera = FALSE;
+	if((sem_getvalue(&p->mutex, &valor) == 0) && (valor == 1))//aca verifica la exclusion mutua
+	{
+		sem_wait(&p->mutex);
+		sem_wait(&TR->Out);
+		Solicitar_Tarjeta_Red(TR);	//Solicitud de Tarjeta de Red, usando buffer de Salida...//
+		sem_post(&TR->Out);
+		printf("\n Impresora recibe paquete de impresion.\n");
+		system("sleep 1.0");
+		srand(time(NULL));
+		while(!Bandera)	// Numero de ml de tinta entre 10y 40 validado...///
 		{
-		 	printf("\n[error]"); /* aca se llama a quien sea que se le deba avisar o se deja el sms pa que alguien vea */
-			strcpy(p->mensaje,"[error]");
-			printf("\n");
+			Tinta = rand() MOD 41;
+			if((Tinta >= 10) AND (Tinta <= 40))
+			{
+				Bandera = TRUE;
+			}
 		}
-		else
+		Bandera = FALSE;
+		while(!Bandera)	//Para que se cumpla con cada peticion, si no hay tinta recargara hasta poder imprimir..//
 		{
-			printf("\n se imprime mensaje: %s",sms);
-			system("sleep 1.0");
-			p->restante=p->restante-tinta;
-			strcpy(p->mensaje,"[ok]"); /* se almacena por si alguien pregunta */
-			printf("\n[ok]");
-			printf("\n");
+			if (Tinta_Disponible < Tinta)
+			{
+				printf("\n[ERROR]: No se pudo imprimir por falta de tinta.\n"); //aca se llama a quien sea que se le deba avisar o se deja el sms pa que alguien vea
+				recargar(p);
+			}else{
+				Bandera = TRUE;
+				printf("\n[OK]: Se imprimió correctamente.\n");
+				Tinta_Disponible = (Tinta_Disponible - Tinta);
+			}
 		}
 		sem_post(&p->mutex);
-	 }
+	}
 }
 
 void manejadorInterrupciones(PCB id_pcb, int irqO)
